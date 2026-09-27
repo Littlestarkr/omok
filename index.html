@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>오목 (Omok) - 지적 동반자와의 대국</title>
     <style>
         :root {
@@ -12,7 +12,34 @@
             --board-bg: #dcb35c;
             --line-color: #593d18;
             --accent-color: #3f3f46;
+            --muted-color: #71717a;
+            --border-color: #d4d4d8;
         }
+
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                --bg-color: #18181b;
+                --panel-bg: #27272a;
+                --text-color: #f4f4f5;
+                --board-bg: #b8863f;
+                --line-color: #2e1f0c;
+                --accent-color: #a1a1aa;
+                --muted-color: #a1a1aa;
+                --border-color: #3f3f46;
+            }
+        }
+        :root[data-theme="dark"] {
+            --bg-color: #18181b;
+            --panel-bg: #27272a;
+            --text-color: #f4f4f5;
+            --board-bg: #b8863f;
+            --line-color: #2e1f0c;
+            --accent-color: #a1a1aa;
+            --muted-color: #a1a1aa;
+            --border-color: #3f3f46;
+        }
+
+        * { box-sizing: border-box; }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -24,14 +51,14 @@
             justify-content: center;
             min-height: 100vh;
             margin: 0;
-            padding: 20px;
+            padding: max(20px, env(safe-area-inset-top, 0px)) 20px max(20px, env(safe-area-inset-bottom, 0px));
         }
 
         .container {
             background-color: var(--panel-bg);
             padding: 30px;
             border-radius: 12px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
             max-width: 600px;
             width: 100%;
             display: flex;
@@ -48,7 +75,7 @@
 
         .subtitle {
             font-size: 0.9rem;
-            color: #71717a;
+            color: var(--muted-color);
             margin-bottom: 20px;
             text-align: center;
         }
@@ -64,9 +91,10 @@
         select, button {
             padding: 8px 16px;
             font-size: 0.95rem;
-            border: 1px solid #d4d4d8;
+            border: 1px solid var(--border-color);
             border-radius: 6px;
-            background-color: #fff;
+            background-color: var(--panel-bg);
+            color: var(--text-color);
             cursor: pointer;
             transition: all 0.2s ease;
         }
@@ -102,6 +130,8 @@
             border-radius: 8px;
             box-shadow: inset 0 2px 8px rgba(0,0,0,0.15);
             cursor: pointer;
+            max-width: 100%;
+            overflow-x: auto;
         }
 
         canvas {
@@ -111,8 +141,24 @@
         .footer-note {
             margin-top: 20px;
             font-size: 0.85rem;
-            color: #a1a1aa;
+            color: var(--muted-color);
             text-align: center;
+        }
+
+        .legend {
+            margin-top: 8px;
+            font-size: 0.8rem;
+            color: var(--muted-color);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            border: 2px solid #ef4444;
+            display: inline-block;
         }
     </style>
 </head>
@@ -140,6 +186,7 @@
         <canvas id="omokBoard" width="450" height="450"></canvas>
     </div>
 
+    <div class="legend"><span class="legend-dot"></span> AI(백돌)의 가장 최근 착수 위치</div>
     <div class="footer-note">바둑판 위에서 펼쳐지는 침묵의 대화</div>
 </div>
 
@@ -152,18 +199,20 @@
 
     const BOARD_SIZE = 15;
     const CELL_SIZE = canvas.width / (BOARD_SIZE + 1);
-    
+
     // 0: 빈칸, 1: 흑(플레이어), 2: 백(AI)
     let board = [];
     let currentPlayer = 1; // 1: 흑, 2: 백
     let gameOver = false;
     let isAITurn = false;
+    let lastAIMove = null; // { r, c } AI가 가장 최근에 둔 위치
 
     function initBoard() {
         board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0));
         gameOver = false;
         currentPlayer = 1;
         isAITurn = false;
+        lastAIMove = null;
         statusText.textContent = "흑돌(작가님)의 차례입니다.";
         drawBoard();
     }
@@ -177,20 +226,17 @@
 
         for (let i = 0; i < BOARD_SIZE; i++) {
             const pos = CELL_SIZE * (i + 1);
-            // 가로선
             ctx.beginPath();
             ctx.moveTo(CELL_SIZE, pos);
             ctx.lineTo(CELL_SIZE * BOARD_SIZE, pos);
             ctx.stroke();
 
-            // 세로선
             ctx.beginPath();
             ctx.moveTo(pos, CELL_SIZE);
             ctx.lineTo(pos, CELL_SIZE * BOARD_SIZE);
             ctx.stroke();
         }
 
-        // 화점(Star points) 그리기
         const starPoints = [3, 7, 11];
         ctx.fillStyle = '#593d18';
         for (let x of starPoints) {
@@ -201,13 +247,16 @@
             }
         }
 
-        // 돌 그리기
         for (let r = 0; r < BOARD_SIZE; r++) {
             for (let c = 0; c < BOARD_SIZE; c++) {
                 if (board[r][c] !== 0) {
                     drawStone(c, r, board[r][c]);
                 }
             }
+        }
+
+        if (lastAIMove) {
+            drawLastMoveMarker(lastAIMove.c, lastAIMove.r);
         }
     }
 
@@ -217,7 +266,7 @@
 
         ctx.beginPath();
         ctx.arc(cx, cy, CELL_SIZE * 0.42, 0, Math.PI * 2);
-        
+
         const gradient = ctx.createRadialGradient(cx - 3, cy - 3, 2, cx, cy, CELL_SIZE * 0.42);
         if (player === 1) {
             gradient.addColorStop(0, '#52525b');
@@ -234,19 +283,31 @@
         ctx.shadowOffsetY = 2;
         ctx.fill();
 
-        // 그림자 초기화
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
         ctx.shadowOffsetX = 0;
         ctx.shadowOffsetY = 0;
     }
 
+    function drawLastMoveMarker(x, y) {
+        const cx = CELL_SIZE * (x + 1);
+        const cy = CELL_SIZE * (y + 1);
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, CELL_SIZE * 0.16, 0, Math.PI * 2);
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+    }
+
     canvas.addEventListener('click', (e) => {
         if (gameOver || isAITurn || currentPlayer !== 1) return;
 
         const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const mouseX = (e.clientX - rect.left) * scaleX;
+        const mouseY = (e.clientY - rect.top) * scaleY;
 
         const c = Math.round(mouseX / CELL_SIZE) - 1;
         const r = Math.round(mouseY / CELL_SIZE) - 1;
@@ -265,6 +326,9 @@
 
     function makeMove(r, c, player) {
         board[r][c] = player;
+        if (player === 2) {
+            lastAIMove = { r, c };
+        }
         drawBoard();
 
         if (checkWin(r, c, player)) {
@@ -285,15 +349,14 @@
 
     function checkWin(r, c, player) {
         const directions = [
-            { dr: 0, dc: 1 },  // 가로
-            { dr: 1, dc: 0 },  // 세로
-            { dr: 1, dc: 1 },  // 우하향 대각선
-            { dr: 1, dc: -1 }  // 좌하향 대각선
+            { dr: 0, dc: 1 },
+            { dr: 1, dc: 0 },
+            { dr: 1, dc: 1 },
+            { dr: 1, dc: -1 }
         ];
 
         for (let { dr, dc } of directions) {
             let count = 1;
-            // 정방향 탐색
             let i = 1;
             while (true) {
                 let nr = r + dr * i;
@@ -302,7 +365,6 @@
                 count++;
                 i++;
             }
-            // 역방향 탐색
             i = 1;
             while (true) {
                 let nr = r - dr * i;
@@ -317,7 +379,6 @@
         return false;
     }
 
-    // AI 로직
     function aiTurn() {
         if (gameOver) return;
         const difficulty = difficultySelect.value;
@@ -337,15 +398,12 @@
         isAITurn = false;
     }
 
-    // 빈 자리 중 무작위 선택 + 기본적인 공격/방어 가중치 약함
     function getEasyMove() {
-        // 1순위: 내가 4개면 이기기, 상대가 4개면 막기
         let critical = findCriticalMove(2);
         if (critical) return critical;
         critical = findCriticalMove(1);
         if (critical) return critical;
 
-        // 무작위 빈 칸
         let emptyCells = [];
         for (let r = 0; r < BOARD_SIZE; r++) {
             for (let c = 0; c < BOARD_SIZE; c++) {
@@ -356,18 +414,15 @@
         return emptyCells[Math.floor(Math.random() * emptyCells.length)];
     }
 
-    // 중급용: 3이나 4를 즉각 차단하거나 생성
     function getNormalMove() {
-        let move = findCriticalMove(2); // 내가 끝낼 수 있으면 끝냄
+        let move = findCriticalMove(2);
         if (move) return move;
-        move = findCriticalMove(1); // 상대의 3/4 위협 차단
+        move = findCriticalMove(1);
         if (move) return move;
 
-        // 플레이어 근처에 두기 선호
         return getBestScoredMove();
     }
 
-    // 전문가용: 공방 점수 평가 함수 기반 휴리스틱 탐색
     function getHardMove() {
         let move = findCriticalMove(2);
         if (move) return move;
@@ -380,7 +435,6 @@
         for (let r = 0; r < BOARD_SIZE; r++) {
             for (let c = 0; c < BOARD_SIZE; c++) {
                 if (board[r][c] === 0) {
-                    // 주변에 돌이 있는 경우만 평가 (연산 최적화)
                     if (!hasNeighbor(r, c, 2)) continue;
 
                     let score = evaluatePosition(r, c);
@@ -395,8 +449,11 @@
         }
 
         if (bestMoves.length === 0) {
-            // 주변에 돌이 없으면 중앙 근처
-            return { r: Math.floor(BOARD_SIZE / 2), c: Math.floor(BOARD_SIZE / 2) };
+            const center = Math.floor(BOARD_SIZE / 2);
+            if (board[center][center] === 0) {
+                return { r: center, c: center };
+            }
+            return getBestScoredMove();
         }
 
         return bestMoves[Math.floor(Math.random() * bestMoves.length)];
@@ -418,7 +475,8 @@
 
     function hasNeighbor(r, c, dist) {
         for (let dr = -dist; dr <= dist; dr++) {
-            for (let dc = -dist; dc <= dc; dc++) {
+            for (let dc = -dist; dc <= dist; dc++) {
+                if (dr === 0 && dc === 0) continue;
                 let nr = r + dr;
                 let nc = c + dc;
                 if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
@@ -430,10 +488,9 @@
     }
 
     function evaluatePosition(r, c) {
-        // AI 관점(2)과 플레이어 관점(1)의 가치 합산
         let score = 0;
-        score += getScoreForPlayer(r, c, 2) * 1.2; // AI 공격 가중치
-        score += getScoreForPlayer(r, c, 1);       // 플레이어 방어 가중치
+        score += getScoreForPlayer(r, c, 2) * 1.2;
+        score += getScoreForPlayer(r, c, 1);
         return score;
     }
 
@@ -446,7 +503,6 @@
             let count = 1;
             let openEnds = 0;
 
-            // 정방향
             let i = 1;
             while (true) {
                 let nr = r + dr * i;
@@ -461,7 +517,6 @@
                 }
             }
 
-            // 역방향
             i = 1;
             while (true) {
                 let nr = r - dr * i;
@@ -507,7 +562,6 @@
 
     restartBtn.addEventListener('click', initBoard);
 
-    // 초기화 실행
     initBoard();
 </script>
 
