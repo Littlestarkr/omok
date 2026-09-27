@@ -185,6 +185,7 @@
             </select>
         </div>
         <button id="restartBtn">새 게임 시작</button>
+        <button id="undoBtn">한 수 무르기</button>
     </div>
 
     <div class="status" id="statusText">흑돌(작가님)의 차례입니다.</div>
@@ -202,16 +203,19 @@
     const ctx = canvas.getContext('2d');
     const statusText = document.getElementById('statusText');
     const restartBtn = document.getElementById('restartBtn');
+    const undoBtn = document.getElementById('undoBtn');
     const difficultySelect = document.getElementById('difficulty');
 
     const BOARD_SIZE = 15;
     const CELL_SIZE = canvas.width / (BOARD_SIZE + 1);
 
+    // 0: 빈칸, 1: 흑(플레이어), 2: 백(AI)
     let board = [];
-    let currentPlayer = 1;
+    let currentPlayer = 1; // 1: 흑, 2: 백
     let gameOver = false;
     let isAITurn = false;
-    let lastAIMove = null;
+    let lastAIMove = null; // { r, c } AI가 가장 최근에 둔 위치
+    let moveHistory = []; // { r, c, player } 순서대로 기록 (무르기용)
 
     function initBoard() {
         board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0));
@@ -219,6 +223,7 @@
         currentPlayer = 1;
         isAITurn = false;
         lastAIMove = null;
+        moveHistory = [];
         statusText.textContent = "흑돌(작가님)의 차례입니다.";
         drawBoard();
     }
@@ -331,6 +336,7 @@
 
     function makeMove(r, c, player) {
         board[r][c] = player;
+        moveHistory.push({ r, c, player });
         if (player === 2) {
             lastAIMove = { r, c };
         }
@@ -565,7 +571,39 @@
         return bestMove || { r: Math.floor(BOARD_SIZE / 2), c: Math.floor(BOARD_SIZE / 2) };
     }
 
+    // 한 수 무르기: AI의 마지막 착수와 플레이어의 마지막 착수를 함께 되돌려
+    // 항상 플레이어(흑) 차례로 되돌아온다.
+    function undoMove() {
+        if (isAITurn || moveHistory.length === 0) return;
+
+        let last = moveHistory.pop();
+        board[last.r][last.c] = 0;
+
+        if (last.player === 2 && moveHistory.length > 0) {
+            let prev = moveHistory[moveHistory.length - 1];
+            if (prev.player === 1) {
+                moveHistory.pop();
+                board[prev.r][prev.c] = 0;
+            }
+        }
+
+        lastAIMove = null;
+        for (let i = moveHistory.length - 1; i >= 0; i--) {
+            if (moveHistory[i].player === 2) {
+                lastAIMove = { r: moveHistory[i].r, c: moveHistory[i].c };
+                break;
+            }
+        }
+
+        gameOver = false;
+        currentPlayer = 1;
+        isAITurn = false;
+        statusText.textContent = "흑돌(작가님)의 차례입니다.";
+        drawBoard();
+    }
+
     restartBtn.addEventListener('click', initBoard);
+    undoBtn.addEventListener('click', undoMove);
 
     initBoard();
 </script>
