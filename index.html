@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>오목 (Omok) - 지적 동반자와의 대국</title>
+    <style>
+        :root {
+            --bg-color: #f4f4f5;
+            --panel-bg: #ffffff;
+            --text-color: #27272a;
+            --board-bg: #dcb35c;
+            --line-color: #593d18;
+            --accent-color: #3f3f46;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            background-color: var(--panel-bg);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+            max-width: 600px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+        }
+
+        .subtitle {
+            font-size: 0.9rem;
+            color: #71717a;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        select, button {
+            padding: 8px 16px;
+            font-size: 0.95rem;
+            border: 1px solid #d4d4d8;
+            border-radius: 6px;
+            background-color: #fff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        select:focus, button:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+
+        button {
+            background-color: #27272a;
+            color: #fff;
+            border: none;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background-color: #3f3f46;
+        }
+
+        .status {
+            font-size: 1.05rem;
+            font-weight: 500;
+            margin-bottom: 15px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+        }
+
+        .board-wrapper {
+            background-color: var(--board-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: inset 0 2px 8px rgba(0,0,0,0.15);
+            cursor: pointer;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .footer-note {
+            margin-top: 20px;
+            font-size: 0.85rem;
+            color: #a1a1aa;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>오 목 (Omok)</h1>
+    <div class="subtitle">사유를 다듬는 AI와의 대국 공간</div>
+
+    <div class="controls">
+        <div>
+            <label for="difficulty">난이도: </label>
+            <select id="difficulty">
+                <option value="easy">초보용 (직관적)</option>
+                <option value="normal" selected>중급용 (균형적)</option>
+                <option value="hard">전문가용 (전략적)</option>
+            </select>
+        </div>
+        <button id="restartBtn">새 게임 시작</button>
+    </div>
+
+    <div class="status" id="statusText">흑돌(작가님)의 차례입니다.</div>
+
+    <div class="board-wrapper">
+        <canvas id="omokBoard" width="450" height="450"></canvas>
+    </div>
+
+    <div class="footer-note">바둑판 위에서 펼쳐지는 침묵의 대화</div>
+</div>
+
+<script>
+    const canvas = document.getElementById('omokBoard');
+    const ctx = canvas.getContext('2d');
+    const statusText = document.getElementById('statusText');
+    const restartBtn = document.getElementById('restartBtn');
+    const difficultySelect = document.getElementById('difficulty');
+
+    const BOARD_SIZE = 15;
+    const CELL_SIZE = canvas.width / (BOARD_SIZE + 1);
+    
+    // 0: 빈칸, 1: 흑(플레이어), 2: 백(AI)
+    let board = [];
+    let currentPlayer = 1; // 1: 흑, 2: 백
+    let gameOver = false;
+    let isAITurn = false;
+
+    function initBoard() {
+        board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0));
+        gameOver = false;
+        currentPlayer = 1;
+        isAITurn = false;
+        statusText.textContent = "흑돌(작가님)의 차례입니다.";
+        drawBoard();
+    }
+
+    function drawBoard() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // 격자 그리기
+        ctx.strokeStyle = '#593d18';
+        ctx.lineWidth = 1;
+
+        for (let i = 0; i < BOARD_SIZE; i++) {
+            const pos = CELL_SIZE * (i + 1);
+            // 가로선
+            ctx.beginPath();
+            ctx.moveTo(CELL_SIZE, pos);
+            ctx.lineTo(CELL_SIZE * BOARD_SIZE, pos);
+            ctx.stroke();
+
+            // 세로선
+            ctx.beginPath();
+            ctx.moveTo(pos, CELL_SIZE);
+            ctx.lineTo(pos, CELL_SIZE * BOARD_SIZE);
+            ctx.stroke();
+        }
+
+        // 화점(Star points) 그리기
+        const starPoints = [3, 7, 11];
+        ctx.fillStyle = '#593d18';
+        for (let x of starPoints) {
+            for (let y of starPoints) {
+                ctx.beginPath();
+                ctx.arc(CELL_SIZE * (x + 1), CELL_SIZE * (y + 1), 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 돌 그리기
+        for (let r = 0; r < BOARD_SIZE; r++) {
+            for (let c = 0; c < BOARD_SIZE; c++) {
+                if (board[r][c] !== 0) {
+                    drawStone(c, r, board[r][c]);
+                }
+            }
+        }
+    }
+
+    function drawStone(x, y, player) {
+        const cx = CELL_SIZE * (x + 1);
+        const cy = CELL_SIZE * (y + 1);
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, CELL_SIZE * 0.42, 0, Math.PI * 2);
+        
+        const gradient = ctx.createRadialGradient(cx - 3, cy - 3, 2, cx, cy, CELL_SIZE * 0.42);
+        if (player === 1) {
+            gradient.addColorStop(0, '#52525b');
+            gradient.addColorStop(1, '#09090b');
+        } else {
+            gradient.addColorStop(0, '#ffffff');
+            gradient.addColorStop(1, '#d4d4d8');
+        }
+
+        ctx.fillStyle = gradient;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+        ctx.shadowBlur = 4;
+        ctx.shadowOffsetX = 2;
+        ctx.shadowOffsetY = 2;
+        ctx.fill();
+
+        // 그림자 초기화
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+    }
+
+    canvas.addEventListener('click', (e) => {
+        if (gameOver || isAITurn || currentPlayer !== 1) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const c = Math.round(mouseX / CELL_SIZE) - 1;
+        const r = Math.round(mouseY / CELL_SIZE) - 1;
+
+        if (c >= 0 && c < BOARD_SIZE && r >= 0 && r < BOARD_SIZE) {
+            if (board[r][c] === 0) {
+                makeMove(r, c, 1);
+                if (!gameOver) {
+                    isAITurn = true;
+                    statusText.textContent = "AI가 사유하는 중입니다...";
+                    setTimeout(aiTurn, 400);
+                }
+            }
+        }
+    });
+
+    function makeMove(r, c, player) {
+        board[r][c] = player;
+        drawBoard();
+
+        if (checkWin(r, c, player)) {
+            gameOver = true;
+            if (player === 1) {
+                statusText.textContent = "흑돌(작가님)의 승리입니다.";
+            } else {
+                statusText.textContent = "백돌(AI)의 승리입니다.";
+            }
+            return;
+        }
+
+        currentPlayer = currentPlayer === 1 ? 2 : 1;
+        if (!gameOver) {
+            statusText.textContent = currentPlayer === 1 ? "흑돌(작가님)의 차례입니다." : "백돌(AI)의 차례입니다.";
+        }
+    }
+
+    function checkWin(r, c, player) {
+        const directions = [
+            { dr: 0, dc: 1 },  // 가로
+            { dr: 1, dc: 0 },  // 세로
+            { dr: 1, dc: 1 },  // 우하향 대각선
+            { dr: 1, dc: -1 }  // 좌하향 대각선
+        ];
+
+        for (let { dr, dc } of directions) {
+            let count = 1;
+            // 정방향 탐색
+            let i = 1;
+            while (true) {
+                let nr = r + dr * i;
+                let nc = c + dc * i;
+                if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE || board[nr][nc] !== player) break;
+                count++;
+                i++;
+            }
+            // 역방향 탐색
+            i = 1;
+            while (true) {
+                let nr = r - dr * i;
+                let nc = c - dc * i;
+                if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE || board[nr][nc] !== player) break;
+                count++;
+                i++;
+            }
+
+            if (count >= 5) return true;
+        }
+        return false;
+    }
+
+    // AI 로직
+    function aiTurn() {
+        if (gameOver) return;
+        const difficulty = difficultySelect.value;
+        let move = null;
+
+        if (difficulty === 'easy') {
+            move = getEasyMove();
+        } else if (difficulty === 'normal') {
+            move = getNormalMove();
+        } else {
+            move = getHardMove();
+        }
+
+        if (move) {
+            makeMove(move.r, move.c, 2);
+        }
+        isAITurn = false;
+    }
+
+    // 빈 자리 중 무작위 선택 + 기본적인 공격/방어 가중치 약함
+    function getEasyMove() {
+        // 1순위: 내가 4개면 이기기, 상대가 4개면 막기
+        let critical = findCriticalMove(2);
+        if (critical) return critical;
+        critical = findCriticalMove(1);
+        if (critical) return critical;
+
+        // 무작위 빈 칸
+        let emptyCells = [];
+        for (let r = 0; r < BOARD_SIZE; r++) {
+            for (let c = 0; c < BOARD_SIZE; c++) {
+                if (board[r][c] === 0) emptyCells.push({ r, c });
+            }
+        }
+        if (emptyCells.length === 0) return null;
+        return emptyCells[Math.floor(Math.random() * emptyCells.length)];
+    }
+
+    // 중급용: 3이나 4를 즉각 차단하거나 생성
+    function getNormalMove() {
+        let move = findCriticalMove(2); // 내가 끝낼 수 있으면 끝냄
+        if (move) return move;
+        move = findCriticalMove(1); // 상대의 3/4 위협 차단
+        if (move) return move;
+
+        // 플레이어 근처에 두기 선호
+        return getBestScoredMove();
+    }
+
+    // 전문가용: 공방 점수 평가 함수 기반 휴리스틱 탐색
+    function getHardMove() {
+        let move = findCriticalMove(2);
+        if (move) return move;
+        move = findCriticalMove(1);
+        if (move) return move;
+
+        let bestScore = -1;
+        let bestMoves = [];
+
+        for (let r = 0; r < BOARD_SIZE; r++) {
+            for (let c = 0; c < BOARD_SIZE; c++) {
+                if (board[r][c] === 0) {
+                    // 주변에 돌이 있는 경우만 평가 (연산 최적화)
+                    if (!hasNeighbor(r, c, 2)) continue;
+
+                    let score = evaluatePosition(r, c);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMoves = [{ r, c }];
+                    } else if (score === bestScore) {
+                        bestMoves.push({ r, c });
+                    }
+                }
+            }
+        }
+
+        if (bestMoves.length === 0) {
+            // 주변에 돌이 없으면 중앙 근처
+            return { r: Math.floor(BOARD_SIZE / 2), c: Math.floor(BOARD_SIZE / 2) };
+        }
+
+        return bestMoves[Math.floor(Math.random() * bestMoves.length)];
+    }
+
+    function findCriticalMove(player) {
+        for (let r = 0; r < BOARD_SIZE; r++) {
+            for (let c = 0; c < BOARD_SIZE; c++) {
+                if (board[r][c] === 0) {
+                    board[r][c] = player;
+                    let win = checkWin(r, c, player);
+                    board[r][c] = 0;
+                    if (win) return { r, c };
+                }
+            }
+        }
+        return null;
+    }
+
+    function hasNeighbor(r, c, dist) {
+        for (let dr = -dist; dr <= dist; dr++) {
+            for (let dc = -dist; dc <= dc; dc++) {
+                let nr = r + dr;
+                let nc = c + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                    if (board[nr][nc] !== 0) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    function evaluatePosition(r, c) {
+        // AI 관점(2)과 플레이어 관점(1)의 가치 합산
+        let score = 0;
+        score += getScoreForPlayer(r, c, 2) * 1.2; // AI 공격 가중치
+        score += getScoreForPlayer(r, c, 1);       // 플레이어 방어 가중치
+        return score;
+    }
+
+    function getScoreForPlayer(r, c, player) {
+        board[r][c] = player;
+        let totalScore = 0;
+        const directions = [{ dr: 0, dc: 1 }, { dr: 1, dc: 0 }, { dr: 1, dc: 1 }, { dr: 1, dc: -1 }];
+
+        for (let { dr, dc } of directions) {
+            let count = 1;
+            let openEnds = 0;
+
+            // 정방향
+            let i = 1;
+            while (true) {
+                let nr = r + dr * i;
+                let nc = c + dc * i;
+                if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) break;
+                if (board[nr][nc] === player) {
+                    count++;
+                    i++;
+                } else {
+                    if (board[nr][nc] === 0) openEnds++;
+                    break;
+                }
+            }
+
+            // 역방향
+            i = 1;
+            while (true) {
+                let nr = r - dr * i;
+                let nc = c - dc * i;
+                if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) break;
+                if (board[nr][nc] === player) {
+                    count++;
+                    i++;
+                } else {
+                    if (board[nr][nc] === 0) openEnds++;
+                    break;
+                }
+            }
+
+            if (count >= 5) totalScore += 100000;
+            else if (count === 4 && openEnds === 2) totalScore += 10000;
+            else if (count === 4 && openEnds === 1) totalScore += 1000;
+            else if (count === 3 && openEnds === 2) totalScore += 1000;
+            else if (count === 3 && openEnds === 1) totalScore += 100;
+            else if (count === 2 && openEnds === 2) totalScore += 50;
+        }
+
+        board[r][c] = 0;
+        return totalScore;
+    }
+
+    function getBestScoredMove() {
+        let bestScore = -1;
+        let bestMove = null;
+        for (let r = 0; r < BOARD_SIZE; r++) {
+            for (let c = 0; c < BOARD_SIZE; c++) {
+                if (board[r][c] === 0) {
+                    let score = evaluatePosition(r, c);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMove = { r, c };
+                    }
+                }
+            }
+        }
+        return bestMove || { r: Math.floor(BOARD_SIZE / 2), c: Math.floor(BOARD_SIZE / 2) };
+    }
+
+    restartBtn.addEventListener('click', initBoard);
+
+    // 초기화 실행
+    initBoard();
+</script>
+
+</body>
+</html>
